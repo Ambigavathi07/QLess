@@ -16,6 +16,15 @@ export default function Landing() {
     const [dept, setDept] = useState("all");
     const [cities, setCities] = useState([]);
     const [depts, setDepts] = useState([]);
+    const [hospitals, setHospitals] = useState([]);
+
+    useEffect(() => {
+    api.get("/public/search")
+        .then((res) => {
+            setHospitals(res.data || []);
+        })
+        .catch(console.error);
+}, []);
 
     useEffect(() => {
         api.get("/public/cities").then((r) => setCities(r.data)).catch(() => {});
