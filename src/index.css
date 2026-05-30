@@ -1,0 +1,80 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700;800;900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+    margin: 0;
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background: #F9F9F7;
+    color: #1A1D1C;
+}
+
+code, .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.font-heading {
+    font-family: 'Outfit', sans-serif;
+}
+
+@layer base {
+    :root {
+        --background: 60 14% 97%;
+        --foreground: 150 5% 11%;
+        --card: 0 0% 100%;
+        --card-foreground: 150 5% 11%;
+        --popover: 0 0% 100%;
+        --popover-foreground: 150 5% 11%;
+        --primary: 162 28% 23%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 90 9% 87%;
+        --secondary-foreground: 150 5% 11%;
+        --muted: 60 9% 92%;
+        --muted-foreground: 150 5% 38%;
+        --accent: 14 59% 57%;
+        --accent-foreground: 0 0% 100%;
+        --destructive: 0 72% 51%;
+        --destructive-foreground: 0 0% 100%;
+        --border: 90 8% 89%;
+        --input: 90 8% 89%;
+        --ring: 162 28% 23%;
+        --radius: 0.5rem;
+    }
+}
+
+@layer base {
+    * {
+        @apply border-border;
+    }
+    body {
+        @apply bg-background text-foreground;
+    }
+    h1, h2, h3, h4, h5, h6 {
+        font-family: 'Outfit', sans-serif;
+    }
+}
+
+@layer utilities {
+    .grain {
+        background-image: radial-gradient(rgba(26, 29, 28, 0.04) 1px, transparent 1px);
+        background-size: 4px 4px;
+    }
+    .token-pulse {
+        animation: tokenPulse 1.8s ease-in-out infinite;
+    }
+    @keyframes tokenPulse {
+        0%, 100% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.02); opacity: 0.92; }
+    }
+    .lift-card {
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .lift-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 30px -15px rgba(42, 75, 65, 0.2);
+    }
+}
