@@ -22,30 +22,43 @@ export default function SearchResults() {
         api.get("/public/departments").then((r) => setDepts(r.data)).catch(() => {});
     }, []);
 
-    const load = useCallback(async () => {
-        setLoading(true);
-        try {
-            const query = {};
-            if (params.get("q")) query.q = params.get("q");
-            if (params.get("city")) query.city = params.get("city");
-            if (params.get("department")) query.department = params.get("department");
-            const r = await api.get("/public/search", { params: query });
-            setList(r.data);
-        } finally {
-            setLoading(false);
-        }
-    }, [params]);
+
+const load = useCallback(async () => {
+  setLoading(true);
+
+  try {
+    const query = {
+      name: params.get("q") || "",
+      city: params.get("city") || "",
+      department: params.get("department") || ""
+    };
+
+    console.log("SEARCH QUERY", query);
+
+    const r = await api.post("/public/search", query);
+
+    setList(r.data || []);
+  } catch (err) {
+    console.error("SEARCH ERROR", err.response?.status);
+    console.error("SEARCH ERROR DATA", err.response?.data);
+  } finally {
+    setLoading(false);
+  }
+}, [params]);
 
     useEffect(() => { load(); }, [load]);
 
-    function submit(e) {
-        e.preventDefault();
-        const p = new URLSearchParams();
-        if (q) p.set("q", q);
-        if (city && city !== "all") p.set("city", city);
-        if (dept && dept !== "all") p.set("department", dept);
-        navigate(`/search?${p.toString()}`);
-    }
+function submit(e) {
+  e.preventDefault();
+
+  const p = new URLSearchParams();
+
+  if (q) p.set("q", q);
+  if (city && city !== "all") p.set("city", city);
+  if (dept && dept !== "all") p.set("department", dept);
+
+  navigate(`/search?${p.toString()}`);
+}
 
     return (
         <div className="min-h-screen bg-[#F9F9F7] grain">
@@ -113,20 +126,20 @@ export default function SearchResults() {
                                         </div>
                                     </div>
                                     <div className="text-[10px] tracking-[0.25em] uppercase font-bold text-[#5C6661]">
-                                        {h.tokens_today} today
+Today
                                     </div>
                                 </div>
                                 <div className="mt-4 flex flex-wrap gap-2">
-                                    {(h.departments || []).slice(0, 4).map((d) => (
-                                        <span key={d} className="text-xs px-2 py-1 bg-[#EDEDE8] text-[#2A4B41] rounded-full font-medium">{d}</span>
-                                    ))}
+<span className="text-xs px-2 py-1 bg-[#EDEDE8] text-[#2A4B41] rounded-full">
+    Hospital
+</span>
                                     {(h.departments || []).length > 4 && (
                                         <span className="text-xs px-2 py-1 text-[#5C6661]">+{h.departments.length - 4}</span>
                                     )}
                                 </div>
                                 <div className="mt-5 flex items-center justify-between pt-4 border-t border-[#E2E5E0]">
                                     <div className="inline-flex items-center gap-2 text-sm text-[#5C6661]">
-                                        <Stethoscope size={16} /> {h.doctors_count} doctors
+<Stethoscope size={16} /> Doctors
                                     </div>
                                     <div className="inline-flex items-center gap-1 text-sm font-bold text-[#2A4B41]">
                                         View & book <ArrowRight size={14} />

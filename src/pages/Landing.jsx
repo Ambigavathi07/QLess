@@ -2,7 +2,6 @@ import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
-import { useLocation } from "react-router-dom";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { api } from "../lib/api";
 import {
@@ -17,44 +16,29 @@ export default function Landing() {
     const [dept, setDept] = useState("all");
     const [cities, setCities] = useState([]);
     const [depts, setDepts] = useState([]);
-    const location = useLocation();
+    const [hospitals, setHospitals] = useState([]);
 
-const hospitals =
-    location.state?.hospitals || [];
+    useEffect(() => {
+    api.get("/public/search")
+        .then((res) => {
+            setHospitals(res.data || []);
+        })
+        .catch(console.error);
+}, []);
 
     useEffect(() => {
         api.get("/public/cities").then((r) => setCities(r.data)).catch(() => {});
         api.get("/public/departments").then((r) => setDepts(r.data)).catch(() => {});
     }, []);
 
-async function doSearch(e) {
-    e.preventDefault();
-
-    try {
-        const payload = {
-            name: q || "",
-            city: city === "all" ? "" : city,
-            department: dept === "all" ? "" : dept,
-        };
-
-        console.log("SEARCH PAYLOAD:", payload);
-
-        const { data } = await api.post(
-            "/public/search",
-            payload
-        );
-
-        console.log("SEARCH RESULT:", data);
-
-        navigate("/search", {
-            state: {
-                hospitals: data,
-            },
-        });
-    } catch (error) {
-        console.error(error);
+    function doSearch(e) {
+        e?.preventDefault();
+        const params = new URLSearchParams();
+        if (q) params.set("q", q);
+        if (city && city !== "all") params.set("city", city);
+        if (dept && dept !== "all") params.set("department", dept);
+        navigate(`/search?${params.toString()}`);
     }
-}
 
     return (
         <div className="min-h-screen bg-[#F9F9F7] grain">

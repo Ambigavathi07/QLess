@@ -1,4 +1,5 @@
-import { useEffect, useState, useCallback } from "react";
+
+import { useEffect, useState } from "react";
 import { api, formatApiError } from "../lib/api";
 import AppShell from "../components/AppShell";
 import { Button } from "../components/ui/button";
@@ -16,28 +17,87 @@ const newMed = () => ({ _key: `m-${Math.random().toString(36).slice(2, 9)}`, nam
 
 export default function Doctor() {
     const { user } = useAuth();
-    const [session, setSession] = useState("morning");
+    const [session, setSession] = useState("Morning");
     const [view, setView] = useState(null);
     const [current, setCurrent] = useState(null); // { token, history, current_medications }
     const [loading, setLoading] = useState(false);
     const [rxOpen, setRxOpen] = useState(false);
     const [rx, setRx] = useState({ diagnosis: "", medications: [newMed()] });
+    const [sessionStatus, setSessionStatus] = useState("not_started");
 
-    const load = useCallback(async () => {
+
+
+
+
+
+    const load = async () => {
         try {
-            const [q, c] = await Promise.all([
-                api.get(`/doctor/queue?session=${session}`),
-                api.get("/doctor/current-token"),
-            ]);
-            setView(q.data);
-            setCurrent(c.data);
-        } catch (e) {
-            toast.error(formatApiError(e.response?.data?.detail) || e.message);
-        }
-    }, [session]);
 
-    useEffect(() => { load(); }, [load]);
-    useHospitalSocket(user?.hospital_id, () => load());
+            console.log("QUEUE API START");
+
+            console.log("USER:", user);
+
+            if (!user?.userId) {
+                console.log("USER ID NOT FOUND");
+                return;
+            }
+
+            console.log("DOCTOR ID:", user.userId);
+
+            const queueRes = await api.get(
+                `/tokens/queue?session=${session}&doctorId=${user?.doctorId}`
+            );
+
+            console.log("QUEUE RESPONSE:", queueRes.data);
+
+            const waitingQueue = (queueRes.data || []).map((item, index) => ({
+                id: item.id,
+                token_number: item.tokenNumber,
+                patient_name: item.patientName,
+                state: item.state,
+                session: item.session,
+                position: index + 1,
+                eta_minutes: (index + 1) * 10,
+                priority: item.state
+            }));
+
+            setView({
+                waiting: waitingQueue,
+                now_serving: current?.token || null,
+                session: {
+                    status: "active"
+                },
+                doctor: {
+                    name: user?.name || "Doctor",
+                    queue_control_mode: "doctor"
+                }
+            });
+
+        } catch (e) {
+
+            console.log("QUEUE ERROR:", e);
+
+            toast.error(
+                formatApiError(e.response?.data?.detail) || e.message
+            );
+        }
+    };
+
+    useEffect(() => {
+
+        console.log("USE EFFECT RUNNING");
+
+        if (user?.userId) {
+            load();
+        }
+
+    }, [user?.userId, session]);
+
+
+
+
+
+    // useHospitalSocket(user?.hospital_id, () => load());
 
     async function act(path, method = "post", body = { session }) {
         setLoading(true);
@@ -45,8 +105,19 @@ export default function Doctor() {
             await api[method](path, body);
             await load();
         } catch (e) {
-            toast.error(formatApiError(e.response?.data?.detail) || e.message);
-        } finally {
+
+            console.log("FULL ERROR:", e);
+            console.log("ERROR RESPONSE:", e.response);
+            console.log("ERROR DATA:", e.response?.data);
+
+            toast.error(
+                e.response?.data?.message ||
+                e.response?.data?.detail ||
+                e.message ||
+                "Something went wrong"
+            );
+        }
+        finally {
             setLoading(false);
         }
     }
@@ -62,28 +133,50 @@ export default function Doctor() {
         setRxOpen(true);
     }
 
-    async function savePrescription() {
-        if (!current?.token) return;
-        try {
-            const meds = rx.medications
-                .filter((m) => m.name.trim())
-                .map(({ _key, ...m }) => ({ ...m, price: Number(m.price || 0) }));
-            await api.post(`/doctor/tokens/${current.token.id}/medications`, {
-                medications: meds, diagnosis: rx.diagnosis,
-            });
-            toast.success(`Prescribed ${meds.length} medications`);
-            setRxOpen(false);
-            load();
-        } catch (e) {
-            toast.error(formatApiError(e.response?.data?.detail) || e.message);
-        }
-    }
+   async function savePrescription() {
+    if (!current?.token) return;
 
-    const now = view?.now_serving;
+    try {
+
+        for (const med of rx.medications) {
+
+            if (!med.name?.trim()) continue;
+
+            await api.post("/medications", {
+                tokenId: current.token.id,
+                name: med.name,
+                dosage: med.dosage,
+                frequency: med.frequency,
+                duration: med.duration,
+                notes: med.notes || "",
+                price: Number(med.price || 0)
+            });
+        }
+
+        toast.success("Prescription sent successfully");
+
+        setRxOpen(false);
+
+        await load();
+
+    } catch (e) {
+        toast.error(
+            e.response?.data?.message ||
+            e.response?.data?.detail ||
+            e.message
+        );
+    }
+}
+
+    const now = current?.token || view?.now_serving;
     const waiting = view?.waiting || [];
-    const sessStatus = view?.session?.status || "active";
+const sessStatus = sessionStatus;
     const mode = view?.doctor?.queue_control_mode || "doctor";
     const receptionControlled = mode === "reception";
+
+const isScreenLocked =
+    sessionStatus === "not_started" ||
+    sessionStatus === "paused";
 
     return (
         <AppShell title="Doctor Panel" subtitle={view?.doctor?.name}
@@ -92,23 +185,164 @@ export default function Doctor() {
                     <Select value={session} onValueChange={setSession}>
                         <SelectTrigger className="w-[140px] h-9 border-[#E2E5E0]" data-testid="doctor-session-select"><SelectValue /></SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="morning">Morning</SelectItem>
-                            <SelectItem value="evening">Evening</SelectItem>
+                            <SelectItem value="Morning">Morning</SelectItem>
+                            <SelectItem value="Evening">Evening</SelectItem>
                         </SelectContent>
                     </Select>
-                    {sessStatus === "active" ? (
-                        <Button variant="outline" size="sm" onClick={() => act("/doctor/session/pause")} className="border-[#E2E5E0]" data-testid="pause-session-btn">
-                            <Pause size={16} className="mr-1.5" /> Pause
-                        </Button>
-                    ) : (
-                        <Button variant="outline" size="sm" onClick={() => act("/doctor/session/resume")} className="border-[#E2E5E0]" data-testid="resume-session-btn">
-                            <Play size={16} className="mr-1.5" /> Resume
-                        </Button>
-                    )}
+
+                    <div className="flex items-center gap-2">
+
+                        {sessionStatus === "not_started" ? (
+                            <Button
+                                size="sm"
+                                onClick={async () => {
+                                    try {
+                                        const body = {
+                                            doctorId: user?.doctorId,
+                                            hospitalId: user?.hospitalId,
+                                            session: session,
+                                        };
+
+                                        await api.post("/session/start", body);
+
+                                        setSessionStatus("active");
+
+                                        toast.success("Session started");
+                                    } catch (e) {
+                                        toast.error(
+                                            e.response?.data?.message ||
+                                            e.response?.data?.detail ||
+                                            e.message
+                                        );
+                                    }
+                                }}
+                                className="bg-[#2A4B41] text-white"
+                            >
+                                <Play size={16} className="mr-1.5" />
+                                Start
+                            </Button>
+                        ) : sessionStatus === "active" ? (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={async () => {
+                                    try {
+                                        await api.post("/session/pause", {
+                                            doctorId: user?.doctorId,
+                                            hospitalId: user?.hospitalId,
+                                            session: session,
+                                        });
+                                        console.log("PAUSE CLICKED");
+
+                                        const body = {
+                                            doctorId: user?.doctorId,
+                                            hospitalId: user?.hospitalId,
+                                            session: session,
+                                        };
+
+                                        console.log("BODY:", body);
+
+                                        const res = await api.post("/session/pause", body);
+
+                                        console.log("PAUSE RESPONSE:", res.data);
+
+                                        setSessionStatus("paused");
+
+                                        toast.success("Session paused");
+                                    } catch (e) {
+                                        toast.error(
+                                            e.response?.data?.message ||
+                                            e.response?.data?.detail ||
+                                            e.message
+                                        );
+                                    }
+                                }}
+                            >
+                                <Pause size={16} className="mr-1.5" />
+                                Pause
+                            </Button>
+                        ) : (
+                            <Button
+                                size="sm"
+
+
+
+                                onClick={async () => {
+                                    try {
+                                        await api.post("/session/resume", {
+                                            doctorId: user?.doctorId,
+                                            hospitalId: user?.hospitalId,
+                                            session: session,
+                                        });
+
+                                        console.log("RESUME CLICKED");
+
+                                        const body = {
+                                            doctorId: user?.doctorId,
+                                            hospitalId: user?.hospitalId,
+                                            session: session,
+                                        };
+
+                                        console.log("BODY:", body);
+
+                                        const res = await api.post("/session/resume", body);
+
+                                        console.log("RESUME RESPONSE:", res.data);
+
+                                        setSessionStatus("active");
+
+                                        toast.success("Session resumed");
+                                    } catch (e) {
+                                        toast.error(
+                                            e.response?.data?.message ||
+                                            e.response?.data?.detail ||
+                                            e.message
+                                        );
+                                    }
+                                }}
+                                className="bg-red-500 hover:bg-red-600 text-white"
+                            >
+                                <Play size={16} className="mr-1.5" />
+                                Resume
+                            </Button>
+
+
+
+
+
+
+                        )}
+
+                    </div>
                 </div>
             }>
-            <div className="grid lg:grid-cols-12 gap-6">
-                {/* Left: current token + actions */}
+<div className="relative">
+
+    {isScreenLocked && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/20 rounded-xl">
+            <div className="bg-white px-6 py-4 rounded-lg shadow-lg text-center">
+                <h3 className="font-bold text-lg">
+                    {sessionStatus === "not_started"
+                        ? "Session Not Started"
+                        : "Session Paused"}
+                </h3>
+
+                <p className="text-sm text-gray-500 mt-1">
+                    {sessionStatus === "not_started"
+                        ? "Click Start to begin serving patients"
+                        : "Click Resume to continue serving patients"}
+                </p>
+            </div>
+        </div>
+    )}
+
+    <div
+        className={`grid lg:grid-cols-12 gap-6 ${
+            isScreenLocked
+                ? "pointer-events-none blur-sm"
+                : ""
+        }`}
+    >                {/* Left: current token + actions */}
                 <div className="lg:col-span-7 space-y-6">
                     <div className="bg-white border border-[#E2E5E0] rounded-xl p-8">
                         <div className="text-[11px] tracking-[0.3em] uppercase font-bold text-[#5C6661]">
@@ -118,7 +352,7 @@ export default function Doctor() {
                             <div className="mt-3">
                                 <div className="font-mono text-8xl md:text-9xl font-black tracking-tighter text-[#2A4B41] leading-none">{now.token_number}</div>
                                 <div className="mt-6">
-                                    <div className="text-2xl font-heading font-bold tracking-tight">{now.patient_name}</div>
+                                    <div className="text-2xl font-heading font-bold tracking-tight">{now.patient_name || now.patientName}</div>
                                     <div className="text-sm text-[#5C6661] mt-1">
                                         {now.patient_phone} {now.patient_age ? `· ${now.patient_age} yrs` : ""} · {now.priority === "emergency" ? <span className="text-[#D36A50] font-bold">EMERGENCY</span> : "Normal"}
                                     </div>
@@ -128,20 +362,91 @@ export default function Doctor() {
                                         className="bg-[#D36A50] hover:bg-[#a85036] text-white h-11 px-6" data-testid="prescribe-btn">
                                         <Pill size={18} className="mr-1.5" /> Prescribe
                                     </Button>
-                                    <Button onClick={() => act(`/doctor/tokens/${now.id}/complete`)} disabled={loading}
-                                        className="bg-[#2A4B41] hover:bg-[#1E362E] text-white h-11 px-6" data-testid="complete-token-btn">
-                                        <Check size={18} className="mr-1.5" /> Complete
+                                    <Button
+                                        onClick={async () => {
+                                            try {
+                                                await api.post("/tokens/update-state", {
+                                                    tokenId: now.id,
+                                                    state: "completed",
+                                                    userId: user?.userId
+                                                });
+
+                                                toast.success("Token completed");
+
+                                                setCurrent(null);
+
+                                                await load();
+                                            } catch (e) {
+                                                toast.error(
+                                                    e.response?.data?.message ||
+                                                    e.response?.data?.detail ||
+                                                    e.message
+                                                );
+                                            }
+                                        }}
+                                        disabled={loading}
+                                        className="bg-[#2A4B41] hover:bg-[#1E362E] text-white h-11 px-6"
+                                    >
+                                        <Check size={18} className="mr-1.5" />
+                                        Complete
                                     </Button>
-                                    <Button onClick={() => act(`/doctor/tokens/${now.id}/no-show`)} disabled={loading} variant="outline"
-                                        className="border-[#D36A50] text-[#D36A50] hover:bg-[#D36A50] hover:text-white h-11 px-6" data-testid="no-show-btn">
-                                        <X size={18} className="mr-1.5" /> No-show
+                                    <Button
+                                        onClick={async () => {
+                                            try {
+                                                await api.post("/tokens/update-state", {
+                                                    tokenId: now.id,
+                                                    state: "no_show",
+                                                    userId: user?.userId
+                                                });
+
+                                                toast.success("Marked as no-show");
+
+                                                setCurrent(null);
+
+                                                await load();
+                                            } catch (e) {
+                                                toast.error(
+                                                    e.response?.data?.message ||
+                                                    e.response?.data?.detail ||
+                                                    e.message               
+                                                );
+                                            }
+                                        }}
+                                        variant="outline"
+                                        className="border-[#D36A50] text-[#D36A50] hover:bg-[#D36A50] hover:text-white h-11 px-6"
+                                    >
+                                        <X size={18} className="mr-1.5" />
+                                        No-show
                                     </Button>
-                                    {!receptionControlled && (
-                                        <Button onClick={() => act("/doctor/call-next")} disabled={loading} variant="outline"
-                                            className="border-[#1A1D1C] hover:bg-[#1A1D1C] hover:text-white h-11 px-6" data-testid="skip-to-next-btn">
-                                            <SkipForward size={18} className="mr-1.5" /> Skip → next
-                                        </Button>
-                                    )}
+                                    <Button
+                                        onClick={async () => {
+                                            try {
+                                                await api.post("/tokens/update-state", {
+                                                    tokenId: now.id,
+                                                    state: "skipped",
+                                                    userId: user?.userId
+                                                });
+
+                                                toast.success("Token skipped");
+
+                                                setCurrent(null);
+
+                                                await load();
+                                            } catch (e) {
+                                                toast.error(
+                                                    e.response?.data?.message ||
+                                                    e.response?.data?.detail ||
+                                                    e.message
+                                                );
+                                            }
+                                        }}
+                                        disabled={loading}
+                                        className="bg-black hover:bg-gray-800 text-white h-11 px-6"
+                                    >
+                                        <SkipForward size={18} className="mr-1.5" />
+                                        Skip Next
+                                    </Button>
+
                                 </div>
                             </div>
                         ) : (
@@ -152,7 +457,33 @@ export default function Doctor() {
                                         This queue is reception-controlled. Ask reception to call next.
                                     </div>
                                 ) : (
-                                    <Button onClick={() => act("/doctor/call-next")} disabled={loading || waiting.length === 0}
+                                    <Button
+                                        onClick={async () => {
+                                            try {
+                                                setLoading(true);
+
+                                                const res = await api.post("/tokens/call-next", {
+                                                    doctorId: user?.doctorId,
+                                                    session: session
+                                                });
+
+                                                setCurrent({
+                                                    token: {
+                                                        id: res.data.id,
+                                                        token_number: res.data.tokenNumber,
+                                                        patient_name: res.data.patientName,
+                                                        state: res.data.state,
+                                                        session: res.data.session
+                                                    }
+                                                });
+
+                                                load();
+                                            } catch (e) {
+                                                toast.error(formatApiError(e.response?.data?.detail) || e.message);
+                                            } finally {
+                                                setLoading(false);
+                                            }
+                                        }} disabled={loading || waiting.length === 0}
                                         className="mt-6 bg-[#2A4B41] hover:bg-[#1E362E] text-white h-12 px-8" data-testid="call-next-btn">
                                         <Phone size={18} className="mr-1.5" /> Call next ({waiting.length} waiting)
                                     </Button>
@@ -292,6 +623,8 @@ export default function Doctor() {
                     </div>
                 </DialogContent>
             </Dialog>
+            </div>
+
         </AppShell>
     );
 }
